@@ -170,14 +170,13 @@ class TensorflowDistribution(Distribution):
     """
 
     #pylint: disable=too-many-arguments
-    def __init__(self, energy_op, state_placeholder, init, name=None, sess=None):
+    def __init__(self, energy_grad_func,  init, name=None, sess=None):
         """ Creates a TensorflowDistribution object
 
         ndims and nbatch are inferred from init
         nbatch must match shape of energy_op
 
         :param energy_func: energy function op
-        :param state_placeholder: placeholder taken as input by energy_func of the same shape as init
         :param init: fair initialization for this distribution. array of shape (ndims, nbatch)
         :param name: name of this distribution. use the same name for functionally identical distributions
         :param sess: optional session. If none, one will be created
@@ -186,9 +185,15 @@ class TensorflowDistribution(Distribution):
         """
         import tensorflow as tf
         with tf.Graph().as_default():
-            self.energy_op = energy_op
-            self.grad_op = tf.gradients(energy_op, state_placeholder)
-            self.state_placholder = state_placeholder
+
+            self.state = tf.Variable(tf.zeros([init.shape[0], init.shape[1]]), dtype='float32') 
+            self.state_placeholder = tf.placeholder(tf.float32, [init.shape[0], init.shape[1]])
+            
+
+            self.state_op = self.state.assign(self.state_placeholder)
+            
+            self.energy_op, self.grad_op = energy_grad_func(self.state)
+
             self.init = init
             self.sess = sess or tf.Session()
             # TODO: raise warning if name is not passed
@@ -202,12 +207,18 @@ class TensorflowDistribution(Distribution):
     @overrides(Distribution)
     def E_val(self, X):
         with self.graph.as_default():
-            return self.sess.run(self.energy_op, feed_dict={self.state_placeholder: X})
+            self.sess.run(self.state_op, feed_dict={self.state_placeholder: X}) 
+            energy = self.sess.run(self.energy_op) 
+            energy = np.asarray(energy).reshape((1,-1))
+            return energy
 
     @overrides(Distribution)
     def dEdX_val(self, X):
         with self.graph.as_default():
-            return self.sess.run(self.grad_op, feed_dict={self.state_placeholder: X})
+             
+            grad = self.sess.run(self.grad_op)
+            grad = np.asarray(grad).T
+            return
 
     @overrides(Distribution)
     def gen_init_X(self):
